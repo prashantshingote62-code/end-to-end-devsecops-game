@@ -1,0 +1,79 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(defaultValue: 'variables.tfvars', description: 'Specify the file name', name: 'File-Name')
+        choice(choices: ['plan', 'apply', 'destroy'], description: 'Select Terraform action', name: 'Terraform-Action')
+    }
+
+    environment {
+        // Ensure this ID matches your Jenkins Credentials ID
+        AWS_CREDS = 'aws-key'
+        REGION = 'ap-south-1'
+        TF_DIR = 'EKS-TF'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Checkout the current workspace
+                checkout scm
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                withAWS(credentials: "${env.AWS_CREDS}", region: "${env.REGION}") {
+                    dir("${env.TF_DIR}") {
+                        sh 'terraform init -reconfigure'
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                withAWS(credentials: "${env.AWS_CREDS}", region: "${env.REGION}") {
+                    dir("${env.TF_DIR}") {
+                        sh 'terraform validate'
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Execution') {
+            steps {
+                withAWS(credentials: "${env.AWS_CREDS}", region: "${env.REGION}") {
+                    dir("${env.TF_DIR}") {
+                        script {
+                            def action = params.'Terraform-Action'
+                            def varFile = params.'File-Name'
+
+                            echo "Executing Terraform action: ${action}"
+
+                            switch(action) {
+                                case 'plan':
+                                    sh "terraform plan -var-file=${varFile}"
+                                    break
+                                case 'apply':
+                                    sh "terraform apply -auto-approve -var-file=${varFile}"
+                                    break
+                                case 'destroy':
+                                    sh "terraform destroy -auto-approve -var-file=${varFile}"
+                                    break
+                                default:
+                                    error "Invalid action: ${action}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline finished.'
+        }
+    }
+}
